@@ -1,9 +1,10 @@
+import { BadRequestException } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import { PSP } from "../../../src/core/app/psp"
 import { MemoryDB } from "../../../src/libs/fakedb";
 import { correntistas } from '../../../src/data/db.json'
 import { ModalidadeAlteracao, Situacao, TipoCob } from "../../../src/core/app/models";
-import { MESSAGES } from "../../../src/libs/messages";
+import { MESSAGES, VALIDATORS } from "../../../src/libs/messages";
 import { owners } from "../../../src/data/db.json";
 import { PoliticaRetentativa } from "../../../src/core/app/models/rec";
 import { StatusCobR } from "../../../src/core/app/models/cobr";
@@ -178,14 +179,15 @@ describe("PSP", () => {
 
         it('addCobR txid duplicado', async () => {
             await psp.addCobR({ IdOwner, txid, data });
-            await expect(psp.addCobR({ IdOwner, txid, data })).rejects.toThrow('Duplicate Key');
+            await expect(psp.addCobR({ IdOwner, txid, data })).rejects.toThrow(BadRequestException);
         });
     });
 
     describe('REC', () => {
         it('idRec sem espaço', async () => {
             const res = await psp.addRec({ IdOwner: owners[0].id, data: { politicaRetentativa: PoliticaRetentativa.NaoPermite } as any });
-            expect(res.idRec).toMatch(/^RN[0-9a-z]{8}\d{8}[0-9a-f]{11}$/);
+            expect(res.idRec).toMatch(/^RN\d{8}\d{8}[0-9a-f]{11}$/);
+            expect(VALIDATORS.IDRec('idRec', res.idRec)).toBeUndefined();
         });
 
         it('idRec único no mesmo dia', async () => {
@@ -193,6 +195,13 @@ describe("PSP", () => {
             const a = await psp.addRec({ IdOwner: owners[0].id, data });
             const b = await psp.addRec({ IdOwner: owners[0].id, data });
             expect(a.idRec).not.toEqual(b.idRec);
+        });
+
+        it('todos os owners geram idRec válido', async () => {
+            for (const own of owners) {
+                const res = await psp.addRec({ IdOwner: own.id, data: { politicaRetentativa: PoliticaRetentativa.Permite } as any });
+                expect(VALIDATORS.IDRec('idRec', res.idRec)).toBeUndefined();
+            }
         });
     });
 

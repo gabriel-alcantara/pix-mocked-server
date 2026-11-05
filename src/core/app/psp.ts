@@ -103,13 +103,13 @@ export class PSP {
     async addCobR(itm: PixRequest<CobRPutRequest>): Promise<CobRPutResponse> {
         const pendingKey = `${itm.IdOwner}:${itm.txid}`;
         if (PSP.pendingCobR.has(pendingKey)) {
-            throw new Error('Duplicate Key');
+            throw new BadRequestException({ txid: 'Já existe uma cobrança com o $$ informado.' });
         }
         PSP.pendingCobR.add(pendingKey);
 
         try {
             if (await this.readCobR(itm)) {
-                throw new Error('Duplicate Key');
+                throw new BadRequestException({ txid: 'Já existe uma cobrança com o $$ informado.' });
             }
 
             const rec = itm.data.idRec ? await this.rec.read(itm.IdOwner, { idRec: itm.data.idRec }) : undefined;

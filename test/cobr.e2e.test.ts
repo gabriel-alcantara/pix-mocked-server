@@ -56,11 +56,32 @@ describe('COBR', () => {
     });
 
     it('PUT com idRec de outro recebedor retorna 400', async () => {
-        const idRecOutro = 'RN3114167220240926outrodono0';
+        const idRecOutro = 'RN3114167220240926outrodono01';
         await MemoryDB.get('REC').add(owners[1].id, { idRec: idRecOutro, politicaRetentativa: PoliticaRetentativa.Permite });
         await put(randomUUID().replace(/\-/g, ''), { ...data, idRec: idRecOutro })
             .expect(400)
-            .expect(res => expect(res.body).toMatchObject({ status: 400, violacoes: [{ propriedade: 'cobr.idRec' }] }));
+            .expect(res => expect(res.body).toMatchObject({ status: 400, violacoes: [{ propriedade: 'cobr.idRec', razao: 'O campo cobr.idRec não corresponde a uma recorrência do recebedor.' }] }));
+    });
+
+    it('PUT com idRec fora do formato retorna 400', async () => {
+        await put(randomUUID().replace(/\-/g, ''), { ...data, idRec: 'RR31141672' })
+            .expect(400)
+            .expect(res => expect(res.body).toMatchObject({ status: 400, violacoes: [{ propriedade: 'cobr.idRec', razao: 'O campo cobr.idRec não respeita o schema.' }] }));
+    });
+
+    it('PUT com txid repetido retorna 400', async () => {
+        const txid = randomUUID().replace(/\-/g, '');
+        await put(txid, data).expect(200);
+        await put(txid, data)
+            .expect(400)
+            .expect(res => expect(res.body).toMatchObject({ status: 400, violacoes: [{ propriedade: 'cobr.txid', razao: 'Já existe uma cobrança com o cobr.txid informado.' }] }));
+    });
+
+    it('GET lista com filtro inválido retorna 400', async () => {
+        const inicio = addDays(new Date(), -1).toJSON(), fim = addDays(new Date(), 1).toJSON();
+        await request(app.getHttpServer()).get(`/cobr?inicio=${inicio}&fim=${fim}&cpf=123`).set("mocked-token", "123-abc")
+            .expect(400)
+            .expect(res => expect(res.body).toMatchObject({ status: 400, violacoes: [{ propriedade: 'cobr.cpf' }] }));
     });
 
     it('POST retentativa', async () => {
