@@ -6,6 +6,8 @@ import { correntistas } from '../../src/data/db.json'
 import { CobRController } from '../../src/controllers/cobr.controller';
 import { StatusCobR } from '../../src/core/app/models/cobr';
 import { addDays, flatDate } from '../../src/libs/utils';
+import { PoliticaRetentativa } from '../../src/core/app/models/rec';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('CobRController', () => {
   let ctrl: CobRController;
@@ -18,6 +20,7 @@ describe('CobRController', () => {
     MemoryDB.create("COB_HIST", ['id']);
 
     MemoryDB.create("COBR", ['txid']);
+    MemoryDB.create("REC", ['idRec']);
 
 
     MemoryDB.create("LOCATIONS", ['id', 'uuid']);
@@ -37,6 +40,7 @@ describe('CobRController', () => {
 
   beforeEach(async () => {
     IdOwner = randomUUID();
+    await MemoryDB.get('REC').add(IdOwner, { idRec: data.idRec, politicaRetentativa: PoliticaRetentativa.Permite });
   });
 
   const data: any = {
@@ -55,6 +59,88 @@ describe('CobRController', () => {
     });
   });
 
+  describe('ADD - idRec', () => {
+    it('recusa idRec de outro recebedor', async () => {
+      const outro = randomUUID();
+      const idRec = 'RR3114167220240926zyxwvutsrqp';
+      await MemoryDB.get('REC').add(outro, { idRec, politicaRetentativa: PoliticaRetentativa.Permite });
+      const txid = randomUUID().replace(/\-/g, '');
+      await expect(ctrl.add({ ...data, idRec }, txid, { IdOwner })).rejects.toThrow(BadRequestException);
+      await expect(ctrl.read(txid, { IdOwner })).resolves.toBeUndefined();
+    });
+
+    it('recusa idRec inexistente', async () => {
+      await expect(ctrl.add({ ...data, idRec: 'RN3114167220240926naoexiste0' }, randomUUID().replace(/\-/g, ''), { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('ADD - concorrência', () => {
+    it('mesmo txid em paralelo cria apenas uma cobrança', async () => {
+      const txid = randomUUID().replace(/\-/g, '');
+      const res = await Promise.allSettled([ctrl.add(data, txid, { IdOwner }), ctrl.add(data, txid, { IdOwner })]);
+      expect(res.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+      expect(res.filter(r => r.status === 'rejected')).toHaveLength(1);
+      const { cobs } = await ctrl.list({ IdOwner }, { inicio: flatDate(addDays(new Date(), -1)).toJSON(), fim: flatDate(addDays(new Date(), +1)).toJSON() });
+      expect(cobs.filter(c => c.txid === txid)).toHaveLength(1);
+    });
+  });
+
+  describe('RETENTATIVA', () => {
+    const ymd = (d: Date) => d.toJSON().substring(0, 10);
+    const vencimento = () => flatDate(addDays(new Date(), 1));
+    let txid: string;
+
+    beforeEach(async () => {
+      txid = randomUUID().replace(/\-/g, '');
+      await ctrl.add(data, txid, { IdOwner });
+    });
+
+    it('registra retentativa', async () => {
+      const dia = ymd(addDays(vencimento(), 2));
+      await expect(ctrl.createRetentativa(txid, dia, { IdOwner })).resolves.toMatchObject({ txid, tentativas: [{ dataLiquidacao: dia, tipo: 'RETENTATIVA', status: 'SOLICITADA' }] });
+      await expect(ctrl.read(txid, { IdOwner })).resolves.toMatchObject({ tentativas: [{ dataLiquidacao: dia }] });
+    });
+
+    it('limite de 3 retentativas', async () => {
+      for (let i = 1; i <= 3; i++) {
+        await ctrl.createRetentativa(txid, ymd(addDays(vencimento(), i)), { IdOwner });
+      }
+      await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 4)), { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+
+    it('data repetida', async () => {
+      await ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 1)), { IdOwner });
+      await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+
+    it('data fora da janela de 7 dias', async () => {
+      await expect(ctrl.createRetentativa(txid, ymd(vencimento()), { IdOwner })).rejects.toThrow(BadRequestException);
+      await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 8)), { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+
+    it('data inválida', async () => {
+      await expect(ctrl.createRetentativa(txid, '2024-13-45', { IdOwner })).rejects.toThrow(BadRequestException);
+      await expect(ctrl.createRetentativa(txid, 'amanha', { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+
+    it('recorrência sem retentativa', async () => {
+      const idRec = 'RN3114167220240926naopermite';
+      await MemoryDB.get('REC').add(IdOwner, { idRec, politicaRetentativa: PoliticaRetentativa.NaoPermite });
+      const outro = randomUUID().replace(/\-/g, '');
+      await ctrl.add({ ...data, idRec }, outro, { IdOwner });
+      await expect(ctrl.createRetentativa(outro, ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+
+    it('status não permite', async () => {
+      await MemoryDB.get('COBR').patch(IdOwner, { txid }, { status: StatusCobR.Cancelada });
+      await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+
+    it('cobrança inexistente', async () => {
+      await expect(ctrl.createRetentativa(randomUUID().replace(/\-/g, ''), ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('CREATE (POST)', () => {
     it('gera txid', async () => {
       const res = await ctrl.create(data, { IdOwner });
@@ -67,6 +153,13 @@ describe('CobRController', () => {
       const txid = randomUUID().replace(/\-/g, '');
       await ctrl.add(data, txid, { IdOwner });
       await expect(ctrl.edit({ solicitacaoPagador: 'novo' }, txid, { IdOwner })).resolves.toMatchObject({ txid, solicitacaoPagador: 'novo' });
+    });
+
+    it('calendario preserva vencimento e criação', async () => {
+      const txid = randomUUID().replace(/\-/g, '');
+      const { calendario } = await ctrl.add(data, txid, { IdOwner });
+      const res = await ctrl.edit({ calendario: { expiracao: 3600 } } as any, txid, { IdOwner });
+      expect(res.calendario).toMatchObject({ dataDeVencimento: calendario.dataDeVencimento, dataCriacao: calendario.dataCriacao, expiracao: 3600 });
     });
 
     it('inexistente', async () => {

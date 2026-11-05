@@ -166,6 +166,10 @@ describe("PSP", () => {
     describe('COBR', () => {
         const data: any = { idRec: 'RN3114167220240926abcdefghijk', infoAdicional: 'teste', calendario: { dataDeVencimento: flatDate(addDays(new Date(), 1)).toJSON() } };
 
+        beforeEach(async () => {
+            await MemoryDB.get('REC').add(IdOwner, { idRec: data.idRec, politicaRetentativa: PoliticaRetentativa.Permite });
+        });
+
         it('addCobR persiste na coleção COBR', async () => {
             await expect(psp.addCobR({ IdOwner, txid, data })).resolves.toMatchObject({ txid, idRec: data.idRec, status: StatusCobR.Criada, revisao: 0 });
             await expect(psp.readCobR({ IdOwner, txid })).resolves.toMatchObject({ txid, idRec: data.idRec });
