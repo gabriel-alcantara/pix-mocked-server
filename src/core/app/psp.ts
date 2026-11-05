@@ -196,7 +196,7 @@ export class PSP {
             throw new BadRequestException({ politicaRetentativa: 'A recorrência não permite retentativas.' });
         }
 
-        if ([StatusCobR.Aprovada, StatusCobR.Cancelada, StatusCobR.Expirada].includes(curr.status)) {
+        if ([StatusCobR.Aprovada, StatusCobR.Cancelada, StatusCobR.Expirada, 'REMOVIDA_PELO_USUARIO_RECEBEDOR'].includes(curr.status as string)) {
             throw new BadRequestException({ status: 'O status da cobrança não permite retentativas.' });
         }
 

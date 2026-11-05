@@ -137,6 +137,11 @@ describe('CobRController', () => {
       await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(BadRequestException);
     });
 
+    it('cobrança removida', async () => {
+      await ctrl.edit({ status: 'REMOVIDA_PELO_USUARIO_RECEBEDOR' }, txid, { IdOwner });
+      await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(BadRequestException);
+    });
+
     it('cobrança inexistente', async () => {
       await expect(ctrl.createRetentativa(randomUUID().replace(/\-/g, ''), ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(NotFoundException);
     });
