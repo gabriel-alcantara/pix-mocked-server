@@ -408,4 +408,24 @@ describe('COBV', () => {
     })
 
   });
+
+  describe('/DELETE {:txid}', () => {
+    it('remove a cobrança (não colide com o GET)', async () => {
+      await request(app.getHttpServer())
+        .put(`/cobv/${txid}`)
+        .send({ chave, valor, calendario })
+        .set("mocked-token", "123-abc")
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .delete(`/cobv/${txid}`)
+        .set("mocked-token", "123-abc")
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get(`/cobv/${txid}`)
+        .set("mocked-token", "123-abc")
+        .expect(404);
+    });
+  });
 })
