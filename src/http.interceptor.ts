@@ -60,6 +60,10 @@ export class HttpInterceptor implements NestInterceptor {
                                     const violacoes = Object.keys(msgs).map((key: string) => ({ propriedade: `${endpoint}.${key}`, razao: msgs[key].replace('$$', `${endpoint}.${key}`) }));
                                     throw new BadRequestException(this.ServerErrorTypes[err.getStatus()]('CobV', "A cobrança não respeita o schema.", violacoes));
                                 },
+                                'cobr': (msgs: { [key: string]: string }) => {
+                                    const violacoes = Object.keys(msgs).map((key: string) => ({ propriedade: `${endpoint}.${key}`, razao: msgs[key].replace('$$', `${endpoint}.${key}`) }));
+                                    throw new BadRequestException(this.ServerErrorTypes[err.getStatus()]('CobR', "A cobrança não respeita o schema.", violacoes));
+                                },
                                 'loc': (msgs: { [key: string]: string }) => {
                                     const violacoes = Object.keys(msgs).map((key: string) => ({ propriedade: `${endpoint}.${key}`, razao: msgs[key].replace('$$', `${endpoint}.${key}`) }));
                                     throw new BadRequestException(this.ServerErrorTypes[err.getStatus()]('Location', "O Location não respeita o schema.", violacoes));
