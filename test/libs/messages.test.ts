@@ -85,6 +85,8 @@ describe("MESSSAGES", () => {
         const name = 'CEL'
         it(`${name} inválido`, () => expect(VALIDATORS.cel(name, '+552199999999')).toBe(MESSAGES.Errors.defaults.INVALID_FORMAT(name)))
         it(`${name} válido`, () => expect(VALIDATORS.cel(name, '+5521999999999')).toBeUndefined())
+        it(`${name} com caracteres extras`, () => expect(VALIDATORS.cel(name, 'x+5521999999999')).toBe(MESSAGES.Errors.defaults.INVALID_FORMAT(name)))
+        it(`${name} com dígitos a mais`, () => expect(VALIDATORS.cel(name, '+55219999999990')).toBe(MESSAGES.Errors.defaults.INVALID_FORMAT(name)))
     });
 
     describe("CPF", () => {
