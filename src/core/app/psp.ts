@@ -7,12 +7,14 @@ import { MESSAGES } from "../../libs/messages";
 import { CobGetResponse, CobPatchRequest, CobPutRequest, CobPutResponse, CobGetFilter, CobPatchResponse } from "./models/cob";
 import { LocGetResponse, LocGetFilter, LocID, LocPutRequest, LocPutResponse } from "./models/loc";
 import { CobVGetFilter, CobVGetResponse, CobVPatchRequest, CobVPatchResponse, CobVPutRequest, CobVPutResponse, CobVValor } from "./models/cobv";
-import { CobRPutRequest, CobRPutResponse } from "./models/cobr";
+import { CobRGetFilter, CobRGetResponse, CobRPatchRequest, CobRPatchResponse, CobRPutRequest, CobRPutResponse, StatusCobR } from "./models/cobr";
 import { PoliticaRetentativa, RecPostRequest, RecRequest } from "./models/rec";
 import { owners } from '../../data/db.json'
 
 @Injectable()
 export class PSP {
+
+    private static locSeq: { [IdOwner: string]: number } = {};
 
     private cob: MemoryDB;
     private cobR: MemoryDB;
@@ -98,9 +100,70 @@ export class PSP {
     }
 
     async addCobR(itm: PixRequest<CobRPutRequest>): Promise<CobRPutResponse> {
+        if (await this.readCobR(itm)) {
+            throw new Error('Duplicate Key');
+        }
 
+        const criacao = (new Date()).toJSON();
+        const curr = {
+            ...itm.data,
+            txid: itm.txid,
+            revisao: 0,
+            status: StatusCobR.Criada,
+            criacao,
+            calendario: { ...itm.data.calendario, dataCriacao: criacao }
+        };
 
-        return null;
+        await this.cobR.add(itm.IdOwner, curr);
+        return (await this.readCobR({ IdOwner: itm.IdOwner, txid: itm.txid })) as CobRPutResponse;
+    }
+
+    async readCobR(key: PixKey): Promise<CobRGetResponse> {
+        return await this.cobR.read(key.IdOwner, { txid: key.txid });
+    }
+
+    async listCobR(filter: CobRGetFilter & { IdOwner: string }): Promise<IPaginator & { cobs: CobRGetResponse[] }> {
+        const res: IPaginator = {
+            parametros: {
+                inicio: filter.inicio,
+                fim: filter.fim,
+                paginacao: {
+                    paginaAtual: filter.paginacao?.paginaAtual || 0,
+                    itensPorPagina: filter.paginacao?.itensPorPagina || 100,
+                    quantidadeDePaginas: 0,
+                    quantidadeTotalDeItens: 0
+                }
+            }
+        };
+
+        const cpfcnpj = filter.cnpj || filter.cpf;
+        const ls = await this.cobR.list(filter.IdOwner);
+
+        const cobs = ls.filter((f: any) => {
+            const [criacao, inicio, fim] = [new Date(f.criacao), new Date(filter.inicio), new Date(filter.fim)]
+            return criacao >= inicio && criacao <= fim
+                && (!filter.status || f.status === filter.status)
+                && (!cpfcnpj || f.dadosDevedor?.cpf === cpfcnpj || f.dadosDevedor?.cnpj === cpfcnpj)
+        });
+
+        const ini = res.parametros.paginacao.paginaAtual * res.parametros.paginacao.itensPorPagina;
+        const fim = ini + res.parametros.paginacao.itensPorPagina;
+        res.parametros.paginacao.quantidadeDePaginas = Math.ceil(cobs.length / res.parametros.paginacao.itensPorPagina)
+        res.parametros.paginacao.quantidadeTotalDeItens = cobs.length;
+        return { ...res, cobs: cobs.slice(ini, fim) }
+    }
+
+    async editCobR(itm: PixRequest<CobRPatchRequest>): Promise<CobRPatchResponse> {
+        const curr = await this.readCobR(itm);
+        if (!curr) {
+            return null;
+        }
+        await this.cobR.patch(itm.IdOwner, { txid: itm.txid }, itm.data);
+        return (await this.readCobR(itm)) as CobRPatchResponse;
+    }
+
+    async removeCobR(key: PixID & { IdOwner: string }): Promise<boolean> {
+        return await this.cobR.remove(key.IdOwner, { txid: key.txid });
     }
 
     async addCobV(itm: PixRequest<CobVPutRequest>): Promise<CobVPutResponse> {
@@ -178,7 +241,7 @@ export class PSP {
         let cobs = await Promise.all(
             ls.filter((f: any) => {
                 const [criacao, inicio, fim] = [new Date(f.criacao), new Date(filter.inicio), new Date(filter.fim)]
-                return criacao >= inicio && criacao <= fim && (!chave || f.chave === chave)
+                return criacao >= inicio && criacao <= fim && (!chave || f.chave === chave) && (!filter.status || f.status === filter.status)
             })
                 .map<Promise<CobGetResponse | CobVGetResponse>>(m => this._readCob({ IdOwner: filter.IdOwner, txid: m.txid }))
         );
@@ -359,8 +422,7 @@ export class PSP {
     }
 
     async addLoc({ tipoCob, IdOwner }: LocPutRequest & { IdOwner: string }): Promise<LocPutResponse> {
-        await (() => new Promise<void>(res => setTimeout(() => res(), 100)))(); //delay -- WORKAROUND PRA EVITAR COLISÃO DE ID DURANTE OS TESTES
-        const id = + new Date();
+        const id = PSP.locSeq[IdOwner] = (PSP.locSeq[IdOwner] || 0) + 1;
         const itm = { id, tipoCob, uuid: randomUUID().replace(/\-/g, ''), criacao: (new Date()).toJSON() };
         await this.locations.add(IdOwner, itm)
         return await this.readLoc({ IdOwner, id });
@@ -378,7 +440,7 @@ export class PSP {
             throw new Error( MESSAGES.Errors.defaults.NOT_FOUNT('OWNER') );
         }
 
-        const itm = { ...mdl.data, idRec: `R${mdl.data.politicaRetentativa === PoliticaRetentativa.NaoPermite ? 'N' : 'R'}${ own.ISPB }${ new Date().toJSON().replace(/\D/g,'').substring(0,8) } `    }
+        const itm = { ...mdl.data, idRec: `R${mdl.data.politicaRetentativa === PoliticaRetentativa.NaoPermite ? 'N' : 'R'}${ own.ISPB }${ new Date().toJSON().replace(/\D/g,'').substring(0,8) }`    }
         return await this.rec.add(mdl.IdOwner, itm);
     }
 }

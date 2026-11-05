@@ -11,12 +11,12 @@ COPY tsconfig.build.json .
 COPY tsconfig.json .
 COPY nest-cli.json .
 COPY jest.config.ts .
-COPY src/ .
-RUN yarn build
+COPY src/ ./src/
+RUN npm run build
 
 FROM node:20.16.0-alpine AS final
 WORKDIR /app
 COPY --from=init /app/node_modules/ ./node_modules/
 COPY --from=build /app/dist/ .
 EXPOSE 3000 3001
-ENTRYPOINT ["node", "main.js"]
+ENTRYPOINT ["node", "src/main.js"]

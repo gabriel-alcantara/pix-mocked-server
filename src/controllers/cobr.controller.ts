@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Headers, Param, Patch, Post, Put, Query, Req, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, Param, Patch, Post, Put, Query, Req, UseInterceptors } from '@nestjs/common';
 import { PSP } from '../core/app/psp';
 import { HttpInterceptor } from '../http.interceptor';
 import { CobRGetFilter, CobRPatchRequest, CobRPutRequest } from '../core/app/models/cobr';
@@ -14,7 +14,7 @@ export class CobRController {
   async add(@Body() data: CobRPutRequest, @Param("txid") txid, @Headers() headers) {
     const IdOwner = headers["IdOwner"];
     const itm: PixRequest<CobRPutRequest> = { IdOwner, txid, data }
-    return await null//this.pspService.addCob(itm);
+    return await this.pspService.addCobR(itm);
   }
 
   @Post()
@@ -34,29 +34,29 @@ export class CobRController {
 
 
   @Get(":txid")
-  async read(@Param("txid") txid, @Headers() headers, @Query() qry?) {
+  async read(@Param("txid") txid, @Headers() headers) {
     const IdOwner = headers["IdOwner"];
-    const itm = await this.pspService.readCob({ IdOwner, txid }, qry?.revisao);
+    const itm = await this.pspService.readCobR({ IdOwner, txid });
     return itm;
   }
 
   @Get()
   list(@Headers() headers, @Query() qry: CobRGetFilter) {
     const IdOwner = headers["IdOwner"];
-    return this.pspService.listCob({ ...qry, IdOwner });
+    return this.pspService.listCobR({ ...qry, IdOwner });
   }
 
   @Patch(":txid")
   edit(@Body() data: CobRPatchRequest, @Param("txid") txid, @Headers() headers) {
     const IdOwner = headers["IdOwner"];
     const itm: PixRequest<CobRPatchRequest> = { IdOwner, txid, data }
-    return this.pspService.editCob(itm);
+    return this.pspService.editCobR(itm);
   }
 
-  @Get(":txid")
+  @Delete(":txid")
   remove(@Param("txid") txid, @Headers() headers) {
     const IdOwner = headers["IdOwner"];
-    return this.pspService.removeCob({ IdOwner, txid });
+    return this.pspService.removeCobR({ IdOwner, txid });
   }
 
 }

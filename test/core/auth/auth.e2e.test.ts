@@ -28,7 +28,14 @@ describe('CobController', () => {
         .send({ grant_type: 'client_credentials', client_id: '123', client_secret: 'abc' })
         .set("mocked-token", "123")
         .expect(201)
-        //.expect((res: any) => expect(JSON.parse(res.text)).toMatchObject({ chave: correntistas[1].chave, calendario: { expiracao: 3600 } }))
+        .expect((res: any) => expect(res.body).toMatchObject({ access_token: expect.any(String), expires_in: 300 }))
+    });
+
+    it('/POST 400 grant_type inválido', async () => {
+      await request(app.getHttpServer())
+        .post(`/auth`)
+        .send({ grant_type: 'password', client_id: '123', client_secret: 'abc' })
+        .expect(400)
     });
   
 })  

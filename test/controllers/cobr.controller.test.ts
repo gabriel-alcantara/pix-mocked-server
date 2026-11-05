@@ -4,6 +4,8 @@ import { randomUUID } from 'crypto';
 import { MemoryDB } from '../../src/libs/fakedb';
 import { correntistas } from '../../src/data/db.json'
 import { CobRController } from '../../src/controllers/cobr.controller';
+import { StatusCobR } from '../../src/core/app/models/cobr';
+import { addDays, flatDate } from '../../src/libs/utils';
 
 describe('CobRController', () => {
   let ctrl: CobRController;
@@ -37,9 +39,80 @@ describe('CobRController', () => {
     IdOwner = randomUUID();
   });
 
-  it('CHECK', ()=>{
-    expect(1).toBe(1);
-  })
+  const data: any = {
+    idRec: 'RN3114167220240926abcdefghijk',
+    infoAdicional: 'Serviço de Streaming',
+    calendario: { dataDeVencimento: flatDate(addDays(new Date(), 1)).toJSON() },
+    dadosDevedor: { cpf: correntistas[1].cpfcnpj, cep: '26083190', cidade: 'Nova Iguaçu', logradouro: 'Rua Gemeos', uf: 'RJ' },
+    contaRecebedor: { agencia: '0001', conta: '123456', tipoConta: 'CORRENTE' }
+  };
+
+  describe('ADD (PUT)', () => {
+    it('persiste e retorna a cobrança', async () => {
+      const txid = randomUUID().replace(/\-/g, '');
+      await expect(ctrl.add(data, txid, { IdOwner })).resolves.toMatchObject({ txid, idRec: data.idRec, status: StatusCobR.Criada });
+      await expect(ctrl.read(txid, { IdOwner })).resolves.toMatchObject({ txid, idRec: data.idRec });
+    });
+  });
+
+  describe('CREATE (POST)', () => {
+    it('gera txid', async () => {
+      const res = await ctrl.create(data, { IdOwner });
+      expect(res.txid).toMatch(/^[0-9a-f]{32}$/);
+    });
+  });
+
+  describe('EDIT', () => {
+    it('altera campos', async () => {
+      const txid = randomUUID().replace(/\-/g, '');
+      await ctrl.add(data, txid, { IdOwner });
+      await expect(ctrl.edit({ solicitacaoPagador: 'novo' }, txid, { IdOwner })).resolves.toMatchObject({ txid, solicitacaoPagador: 'novo' });
+    });
+
+    it('inexistente', async () => {
+      await expect(ctrl.edit({ solicitacaoPagador: 'novo' }, randomUUID().replace(/\-/g, ''), { IdOwner })).resolves.toBeNull();
+    });
+  });
+
+  describe('REMOVE', () => {
+    it('success', async () => {
+      const txid = randomUUID().replace(/\-/g, '');
+      await ctrl.add(data, txid, { IdOwner });
+      await expect(ctrl.remove(txid, { IdOwner })).resolves.toBeTruthy();
+      await expect(ctrl.read(txid, { IdOwner })).resolves.toBeUndefined();
+    });
+  });
+
+  describe('LIST', () => {
+    const filter = () => ({ inicio: flatDate(addDays(new Date(), -1)).toJSON(), fim: flatDate(addDays(new Date(), +1)).toJSON() });
+
+    beforeEach(async () => {
+      for (let i = 0; i < 3; i++) {
+        await ctrl.add(data, randomUUID().replace(/\-/g, ''), { IdOwner });
+      }
+      await ctrl.add({ ...data, dadosDevedor: { ...data.dadosDevedor, cpf: undefined, cnpj: correntistas[0].cpfcnpj } }, randomUUID().replace(/\-/g, ''), { IdOwner });
+    });
+
+    it('periodo', async () => {
+      const { parametros, cobs } = await ctrl.list({ IdOwner }, filter());
+      expect(cobs).toHaveLength(4);
+      expect(parametros).toMatchObject({ paginacao: { quantidadeDePaginas: 1, quantidadeTotalDeItens: 4 } });
+    });
+
+    it('cpf', async () => {
+      const { cobs } = await ctrl.list({ IdOwner }, { ...filter(), cpf: correntistas[1].cpfcnpj });
+      expect(cobs).toHaveLength(3);
+    });
+
+    it('status', async () => {
+      await expect(ctrl.list({ IdOwner }, { ...filter(), status: StatusCobR.Criada as any })).resolves.toMatchObject({ parametros: { paginacao: { quantidadeTotalDeItens: 4 } } });
+      await expect(ctrl.list({ IdOwner }, { ...filter(), status: StatusCobR.Cancelada as any })).resolves.toMatchObject({ parametros: { paginacao: { quantidadeTotalDeItens: 0 } } });
+    });
+
+    it('owner isolado', async () => {
+      await expect(ctrl.list({ IdOwner: randomUUID() }, filter())).resolves.toMatchObject({ cobs: [] });
+    });
+  });
 
   // describe('CREATE', () => {
   //   it('Success', async () => await expect(ctrl.create({ chave, valor: { original: "10.00" } }, { IdOwner })).resolves.toMatchObject({ chave, loc: { tipoCob: TipoCob.imediato } }));
