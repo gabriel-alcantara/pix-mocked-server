@@ -158,7 +158,8 @@ export class PSP {
         if (!curr) {
             return null;
         }
-        await this.cobR.patch(itm.IdOwner, { txid: itm.txid }, itm.data);
+        const calendario = itm.data.calendario ? { calendario: { ...curr.calendario, ...itm.data.calendario } } : {};
+        await this.cobR.patch(itm.IdOwner, { txid: itm.txid }, { ...itm.data, ...calendario });
         return (await this.readCobR(itm)) as CobRPatchResponse;
     }
 
