@@ -70,7 +70,7 @@ describe('CobRController', () => {
     });
 
     it('recusa idRec inexistente', async () => {
-      await expect(ctrl.add({ ...data, idRec: 'RN3114167220240926naoexiste0' }, randomUUID().replace(/\-/g, ''), { IdOwner })).rejects.toThrow(BadRequestException);
+      await expect(ctrl.add({ ...data, idRec: 'RN3114167220240926naoexiste01' }, randomUUID().replace(/\-/g, ''), { IdOwner })).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -124,7 +124,7 @@ describe('CobRController', () => {
     });
 
     it('recorrência sem retentativa', async () => {
-      const idRec = 'RN3114167220240926naopermite';
+      const idRec = 'RN3114167220240926naopermite0';
       await MemoryDB.get('REC').add(IdOwner, { idRec, politicaRetentativa: PoliticaRetentativa.NaoPermite });
       const outro = randomUUID().replace(/\-/g, '');
       await ctrl.add({ ...data, idRec }, outro, { IdOwner });

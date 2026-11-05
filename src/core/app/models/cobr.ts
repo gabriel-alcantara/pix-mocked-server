@@ -2,7 +2,7 @@ import { IsNotEmpty, IsNotEmptyObject, IsNumberString, MaxLength, ValidateNested
 import { Chave, ICriacao, Expiracao, IInfoAdicional, Pessoa, PixID, ModalidadeAlteracao, Situacao, PixRevisao, Vencimento, DadosPessoa, DadosConta } from "../models"
 import { Type } from "class-transformer"
 import { IntersectionType } from '@nestjs/swagger';
-import { IsCNPJValid, IsCPFValid, IsDICTExists, IsDICTValid, MinStringNumber } from "../../../validators/custom-validators";
+import { IsCNPJValid, IsCPFValid, IsDICTExists, IsDICTValid, IsIDRec, MinStringNumber } from "../../../validators/custom-validators";
 import { LocID, LocGetRequest } from "./loc";
 import { PoliticaRetentativa } from "./rec";
 
@@ -70,6 +70,7 @@ export class CobRValor extends IntersectionType(Valor, Alteracao, Retirada)
 
 export class CobRPutRequest {
     @IsNotEmpty({ message: 'O campo $$ não respeita o schema.' })
+    @IsIDRec({ message: 'O campo $$ não respeita o schema.' })
     idRec: string
     @MaxLength(140, { message: 'O campo $$ não respeita o schema.' })
     infoAdicional: string
