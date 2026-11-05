@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { MemoryDB } from "../../libs/fakedb";
 import { PixID, PixKey, PixRequest, TipoCob, Situacao, ModalidadeAlteracao, IPaginator, Expiracao } from "./models";
 import { getMD5Hash } from "../../libs/utils";
@@ -110,6 +110,11 @@ export class PSP {
         try {
             if (await this.readCobR(itm)) {
                 throw new Error('Duplicate Key');
+            }
+
+            const rec = itm.data.idRec ? await this.rec.read(itm.IdOwner, { idRec: itm.data.idRec }) : undefined;
+            if (!rec) {
+                throw new BadRequestException({ idRec: 'O campo $$ não corresponde a uma recorrência do recebedor.' });
             }
 
             const criacao = (new Date()).toJSON();
