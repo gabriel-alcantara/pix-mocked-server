@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, Headers, Param, Patch, Post, Put, Query, Req, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, HttpCode, Param, Patch, Post, Put, Query, Req, UseInterceptors } from '@nestjs/common';
 import { PSP } from '../core/app/psp';
 import { HttpInterceptor } from '../http.interceptor';
 import { CobRGetFilter, CobRPatchRequest, CobRPutRequest } from '../core/app/models/cobr';
@@ -26,10 +26,10 @@ export class CobRController {
   }
 
   @Post(":txid/retentativa/:data")
-  async createRetentativa(@Body() data: CobRPutRequest, @Param("txid") txid, @Headers() headers) {
+  @HttpCode(200)
+  async createRetentativa(@Param("txid") txid, @Param("data") data: string, @Headers() headers) {
     const IdOwner = headers["IdOwner"];
-    const itm: PixRequest<CobRPutRequest> = { IdOwner, txid, data }
-    return await this.pspService.addCobR(itm);
+    return await this.pspService.retentativaCobR({ IdOwner, txid }, data);
   }
 
 

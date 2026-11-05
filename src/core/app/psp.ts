@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { MemoryDB } from "../../libs/fakedb";
 import { PixID, PixKey, PixRequest, TipoCob, Situacao, ModalidadeAlteracao, IPaginator, Expiracao } from "./models";
-import { getMD5Hash } from "../../libs/utils";
+import { addDays, flatDate, getMD5Hash } from "../../libs/utils";
 import { randomUUID } from "crypto";
 import { MESSAGES } from "../../libs/messages";
 import { CobGetResponse, CobPatchRequest, CobPutRequest, CobPutResponse, CobGetFilter, CobPatchResponse } from "./models/cob";
@@ -178,6 +178,44 @@ export class PSP {
         const calendario = itm.data.calendario ? { calendario: { ...curr.calendario, ...itm.data.calendario } } : {};
         await this.cobR.patch(itm.IdOwner, { txid: itm.txid }, { ...itm.data, ...calendario });
         return (await this.readCobR(itm)) as CobRPatchResponse;
+    }
+
+    async retentativaCobR(key: PixKey, data: string): Promise<CobRGetResponse> {
+        const curr = await this.readCobR(key);
+        if (!curr) {
+            throw new NotFoundException();
+        }
+
+        const dataLiquidacao = new Date(`${data}T00:00:00.000Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(dataLiquidacao.valueOf())) {
+            throw new BadRequestException({ data: 'O campo $$ não respeita o schema.' });
+        }
+
+        const rec = await this.rec.read(key.IdOwner, { idRec: curr.idRec });
+        if (rec?.politicaRetentativa !== PoliticaRetentativa.Permite) {
+            throw new BadRequestException({ politicaRetentativa: 'A recorrência não permite retentativas.' });
+        }
+
+        if ([StatusCobR.Aprovada, StatusCobR.Cancelada, StatusCobR.Expirada].includes(curr.status)) {
+            throw new BadRequestException({ status: 'O status da cobrança não permite retentativas.' });
+        }
+
+        const tentativas = curr.tentativas || [];
+        if (tentativas.length >= 3) {
+            throw new BadRequestException({ data: 'Limite de 3 retentativas atingido.' });
+        }
+        if (tentativas.find(t => t.dataLiquidacao === data)) {
+            throw new BadRequestException({ data: 'Já existe retentativa para a data informada.' });
+        }
+
+        const vencimento = new Date(`${curr.calendario.dataDeVencimento.substring(0, 10)}T00:00:00.000Z`);
+        if (dataLiquidacao < flatDate(new Date()) || dataLiquidacao <= vencimento || dataLiquidacao > addDays(vencimento, 7)) {
+            throw new BadRequestException({ data: 'O campo $$ deve estar entre o dia seguinte ao vencimento e 7 dias após, e não pode estar no passado.' });
+        }
+
+        const tentativa = { dataLiquidacao: data, tipo: 'RETENTATIVA', status: 'SOLICITADA', atualizacao: (new Date()).toJSON() };
+        await this.cobR.patch(key.IdOwner, { txid: key.txid }, { tentativas: [...tentativas, tentativa] });
+        return await this.readCobR(key);
     }
 
     async removeCobR(key: PixID & { IdOwner: string }): Promise<boolean> {

@@ -35,12 +35,12 @@ export enum StatusCobR{
 
 
 export class CobRGetResponse implements  PixID {
-    idrec: string
+    idRec: string
     txid: string
 
     calendario: {
         dataCriacao: string,
-        dataVencimento: string
+        dataDeVencimento: string
     }
     valor:string
     status: StatusCobR
@@ -51,6 +51,14 @@ export class CobRGetResponse implements  PixID {
     devedor: Pessoa
     solicitacaoPagador: string
     infoAdicionais: IInfoAdicional[]
+    tentativas?: TentativaCobR[]
+}
+
+export class TentativaCobR {
+    dataLiquidacao: string
+    tipo: string
+    status: string
+    atualizacao: string
 }
 
 export class CobRValor extends IntersectionType(Valor, Alteracao, Retirada)
