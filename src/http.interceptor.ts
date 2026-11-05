@@ -49,7 +49,7 @@ export class HttpInterceptor implements NestInterceptor {
                 catchError((err: HttpException): Observable<any> => {
                     const statusHandle = {
                         400: () => {
-                            const endpoint = request['url'].split('/')[1];
+                            const endpoint = request['url'].split('?')[0].split('/')[1];
 
                             const handle: (msgs: any) => Observable<any> = {
                                 'cob': (msgs: { [key: string]: string }) => {
