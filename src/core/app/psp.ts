@@ -15,6 +15,7 @@ import { owners } from '../../data/db.json'
 export class PSP {
 
     private static locSeq: { [IdOwner: string]: number } = {};
+    private static pendingCobR = new Set<string>();
 
     private cob: MemoryDB;
     private cobR: MemoryDB;
@@ -100,22 +101,33 @@ export class PSP {
     }
 
     async addCobR(itm: PixRequest<CobRPutRequest>): Promise<CobRPutResponse> {
-        if (await this.readCobR(itm)) {
+        const pendingKey = `${itm.IdOwner}:${itm.txid}`;
+        if (PSP.pendingCobR.has(pendingKey)) {
             throw new Error('Duplicate Key');
         }
+        PSP.pendingCobR.add(pendingKey);
 
-        const criacao = (new Date()).toJSON();
-        const curr = {
-            ...itm.data,
-            txid: itm.txid,
-            revisao: 0,
-            status: StatusCobR.Criada,
-            criacao,
-            calendario: { ...itm.data.calendario, dataCriacao: criacao }
-        };
+        try {
+            if (await this.readCobR(itm)) {
+                throw new Error('Duplicate Key');
+            }
 
-        await this.cobR.add(itm.IdOwner, curr);
-        return (await this.readCobR({ IdOwner: itm.IdOwner, txid: itm.txid })) as CobRPutResponse;
+            const criacao = (new Date()).toJSON();
+            const curr = {
+                ...itm.data,
+                txid: itm.txid,
+                revisao: 0,
+                status: StatusCobR.Criada,
+                criacao,
+                calendario: { ...itm.data.calendario, dataCriacao: criacao }
+            };
+
+            await this.cobR.add(itm.IdOwner, curr);
+            return (await this.readCobR({ IdOwner: itm.IdOwner, txid: itm.txid })) as CobRPutResponse;
+        }
+        finally {
+            PSP.pendingCobR.delete(pendingKey);
+        }
     }
 
     async readCobR(key: PixKey): Promise<CobRGetResponse> {
