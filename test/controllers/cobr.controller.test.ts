@@ -137,6 +137,13 @@ describe('CobRController', () => {
       await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(BadRequestException);
     });
 
+    it('retentativas concorrentes são todas registradas', async () => {
+      const dias = [1, 2, 3].map(i => ymd(addDays(vencimento(), i)));
+      await Promise.all(dias.map(d => ctrl.createRetentativa(txid, d, { IdOwner })));
+      const cob = await ctrl.read(txid, { IdOwner });
+      expect(cob.tentativas.map(t => t.dataLiquidacao).sort()).toEqual(dias);
+    });
+
     it('cobrança removida', async () => {
       await ctrl.edit({ status: 'REMOVIDA_PELO_USUARIO_RECEBEDOR' }, txid, { IdOwner });
       await expect(ctrl.createRetentativa(txid, ymd(addDays(vencimento(), 1)), { IdOwner })).rejects.toThrow(BadRequestException);

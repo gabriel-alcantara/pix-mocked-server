@@ -180,7 +180,27 @@ export class PSP {
         return (await this.readCobR(itm)) as CobRPatchResponse;
     }
 
+    private static cobRLocks = new Map<string, Promise<unknown>>();
+
+    private static async lockCobR<T>(key: string, fn: () => Promise<T>): Promise<T> {
+        const run = (PSP.cobRLocks.get(key) || Promise.resolve()).catch(() => undefined).then(fn);
+        const tail = run.catch(() => undefined);
+        PSP.cobRLocks.set(key, tail);
+        try {
+            return await run;
+        }
+        finally {
+            if (PSP.cobRLocks.get(key) === tail) {
+                PSP.cobRLocks.delete(key);
+            }
+        }
+    }
+
     async retentativaCobR(key: PixKey, data: string): Promise<CobRGetResponse> {
+        return PSP.lockCobR(`${key.IdOwner}:${key.txid}`, () => this._retentativaCobR(key, data));
+    }
+
+    private async _retentativaCobR(key: PixKey, data: string): Promise<CobRGetResponse> {
         const curr = await this.readCobR(key);
         if (!curr) {
             throw new NotFoundException();
