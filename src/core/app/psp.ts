@@ -1,18 +1,21 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { MemoryDB } from "../../libs/fakedb";
 import { PixID, PixKey, PixRequest, TipoCob, Situacao, ModalidadeAlteracao, IPaginator, Expiracao } from "./models";
-import { getMD5Hash } from "../../libs/utils";
+import { addDays, flatDate, getMD5Hash } from "../../libs/utils";
 import { randomUUID } from "crypto";
 import { MESSAGES } from "../../libs/messages";
 import { CobGetResponse, CobPatchRequest, CobPutRequest, CobPutResponse, CobGetFilter, CobPatchResponse } from "./models/cob";
 import { LocGetResponse, LocGetFilter, LocID, LocPutRequest, LocPutResponse } from "./models/loc";
 import { CobVGetFilter, CobVGetResponse, CobVPatchRequest, CobVPatchResponse, CobVPutRequest, CobVPutResponse, CobVValor } from "./models/cobv";
-import { CobRPutRequest, CobRPutResponse } from "./models/cobr";
+import { CobRGetFilter, CobRGetResponse, CobRPatchRequest, CobRPatchResponse, CobRPutRequest, CobRPutResponse, StatusCobR } from "./models/cobr";
 import { PoliticaRetentativa, RecPostRequest, RecRequest } from "./models/rec";
 import { owners } from '../../data/db.json'
 
 @Injectable()
 export class PSP {
+
+    private static locSeq: { [IdOwner: string]: number } = {};
+    private static pendingCobR = new Set<string>();
 
     private cob: MemoryDB;
     private cobR: MemoryDB;
@@ -98,9 +101,145 @@ export class PSP {
     }
 
     async addCobR(itm: PixRequest<CobRPutRequest>): Promise<CobRPutResponse> {
+        const pendingKey = `${itm.IdOwner}:${itm.txid}`;
+        if (PSP.pendingCobR.has(pendingKey)) {
+            throw new BadRequestException({ txid: 'Já existe uma cobrança com o $$ informado.' });
+        }
+        PSP.pendingCobR.add(pendingKey);
 
+        try {
+            if (await this.readCobR(itm)) {
+                throw new BadRequestException({ txid: 'Já existe uma cobrança com o $$ informado.' });
+            }
 
-        return null;
+            const rec = itm.data.idRec ? await this.rec.read(itm.IdOwner, { idRec: itm.data.idRec }) : undefined;
+            if (!rec) {
+                throw new BadRequestException({ idRec: 'O campo $$ não corresponde a uma recorrência do recebedor.' });
+            }
+
+            const criacao = (new Date()).toJSON();
+            const curr = {
+                ...itm.data,
+                txid: itm.txid,
+                revisao: 0,
+                status: StatusCobR.Criada,
+                criacao,
+                calendario: { ...itm.data.calendario, dataCriacao: criacao }
+            };
+
+            await this.cobR.add(itm.IdOwner, curr);
+            return (await this.readCobR({ IdOwner: itm.IdOwner, txid: itm.txid })) as CobRPutResponse;
+        }
+        finally {
+            PSP.pendingCobR.delete(pendingKey);
+        }
+    }
+
+    async readCobR(key: PixKey): Promise<CobRGetResponse> {
+        return await this.cobR.read(key.IdOwner, { txid: key.txid });
+    }
+
+    async listCobR(filter: CobRGetFilter & { IdOwner: string }): Promise<IPaginator & { cobs: CobRGetResponse[] }> {
+        const res: IPaginator = {
+            parametros: {
+                inicio: filter.inicio,
+                fim: filter.fim,
+                paginacao: {
+                    paginaAtual: filter.paginacao?.paginaAtual || 0,
+                    itensPorPagina: filter.paginacao?.itensPorPagina || 100,
+                    quantidadeDePaginas: 0,
+                    quantidadeTotalDeItens: 0
+                }
+            }
+        };
+
+        const cpfcnpj = filter.cnpj || filter.cpf;
+        const ls = await this.cobR.list(filter.IdOwner);
+
+        const cobs = ls.filter((f: any) => {
+            const [criacao, inicio, fim] = [new Date(f.criacao), new Date(filter.inicio), new Date(filter.fim)]
+            return criacao >= inicio && criacao <= fim
+                && (!filter.status || f.status === filter.status)
+                && (!cpfcnpj || f.dadosDevedor?.cpf === cpfcnpj || f.dadosDevedor?.cnpj === cpfcnpj)
+        });
+
+        const ini = res.parametros.paginacao.paginaAtual * res.parametros.paginacao.itensPorPagina;
+        const fim = ini + res.parametros.paginacao.itensPorPagina;
+        res.parametros.paginacao.quantidadeDePaginas = Math.ceil(cobs.length / res.parametros.paginacao.itensPorPagina)
+        res.parametros.paginacao.quantidadeTotalDeItens = cobs.length;
+        return { ...res, cobs: cobs.slice(ini, fim) }
+    }
+
+    async editCobR(itm: PixRequest<CobRPatchRequest>): Promise<CobRPatchResponse> {
+        const curr = await this.readCobR(itm);
+        if (!curr) {
+            return null;
+        }
+        const calendario = itm.data.calendario ? { calendario: { ...curr.calendario, ...itm.data.calendario } } : {};
+        await this.cobR.patch(itm.IdOwner, { txid: itm.txid }, { ...itm.data, ...calendario });
+        return (await this.readCobR(itm)) as CobRPatchResponse;
+    }
+
+    private static cobRLocks = new Map<string, Promise<unknown>>();
+
+    private static async lockCobR<T>(key: string, fn: () => Promise<T>): Promise<T> {
+        const run = (PSP.cobRLocks.get(key) || Promise.resolve()).catch(() => undefined).then(fn);
+        const tail = run.catch(() => undefined);
+        PSP.cobRLocks.set(key, tail);
+        try {
+            return await run;
+        }
+        finally {
+            if (PSP.cobRLocks.get(key) === tail) {
+                PSP.cobRLocks.delete(key);
+            }
+        }
+    }
+
+    async retentativaCobR(key: PixKey, data: string): Promise<CobRGetResponse> {
+        return PSP.lockCobR(`${key.IdOwner}:${key.txid}`, () => this._retentativaCobR(key, data));
+    }
+
+    private async _retentativaCobR(key: PixKey, data: string): Promise<CobRGetResponse> {
+        const curr = await this.readCobR(key);
+        if (!curr) {
+            throw new NotFoundException();
+        }
+
+        const dataLiquidacao = new Date(`${data}T00:00:00.000Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(dataLiquidacao.valueOf()) || dataLiquidacao.toJSON().substring(0, 10) !== data) {
+            throw new BadRequestException({ data: 'O campo $$ não respeita o schema.' });
+        }
+
+        const rec = await this.rec.read(key.IdOwner, { idRec: curr.idRec });
+        if (rec?.politicaRetentativa !== PoliticaRetentativa.Permite) {
+            throw new BadRequestException({ politicaRetentativa: 'A recorrência não permite retentativas.' });
+        }
+
+        if ([StatusCobR.Aprovada, StatusCobR.Cancelada, StatusCobR.Expirada, 'REMOVIDA_PELO_USUARIO_RECEBEDOR'].includes(curr.status as string)) {
+            throw new BadRequestException({ status: 'O status da cobrança não permite retentativas.' });
+        }
+
+        const tentativas = curr.tentativas || [];
+        if (tentativas.length >= 3) {
+            throw new BadRequestException({ data: 'Limite de 3 retentativas atingido.' });
+        }
+        if (tentativas.find(t => t.dataLiquidacao === data)) {
+            throw new BadRequestException({ data: 'Já existe retentativa para a data informada.' });
+        }
+
+        const vencimento = new Date(`${curr.calendario.dataDeVencimento.substring(0, 10)}T00:00:00.000Z`);
+        if (dataLiquidacao < flatDate(new Date()) || dataLiquidacao <= vencimento || dataLiquidacao > addDays(vencimento, 7)) {
+            throw new BadRequestException({ data: 'O campo $$ deve estar entre o dia seguinte ao vencimento e 7 dias após, e não pode estar no passado.' });
+        }
+
+        const tentativa = { dataLiquidacao: data, tipo: 'RETENTATIVA', status: 'SOLICITADA', atualizacao: (new Date()).toJSON() };
+        await this.cobR.patch(key.IdOwner, { txid: key.txid }, { tentativas: [...tentativas, tentativa] });
+        return await this.readCobR(key);
+    }
+
+    async removeCobR(key: PixID & { IdOwner: string }): Promise<boolean> {
+        return await this.cobR.remove(key.IdOwner, { txid: key.txid });
     }
 
     async addCobV(itm: PixRequest<CobVPutRequest>): Promise<CobVPutResponse> {
@@ -178,7 +317,7 @@ export class PSP {
         let cobs = await Promise.all(
             ls.filter((f: any) => {
                 const [criacao, inicio, fim] = [new Date(f.criacao), new Date(filter.inicio), new Date(filter.fim)]
-                return criacao >= inicio && criacao <= fim && (!chave || f.chave === chave)
+                return criacao >= inicio && criacao <= fim && (!chave || f.chave === chave) && (!filter.status || f.status === filter.status)
             })
                 .map<Promise<CobGetResponse | CobVGetResponse>>(m => this._readCob({ IdOwner: filter.IdOwner, txid: m.txid }))
         );
@@ -279,15 +418,19 @@ export class PSP {
         return (await this._editCob(itm, TipoCob.vencimento)) as CobVPatchResponse;
     }
 
-    async _removeCob(key: PixID & { IdOwner: string }): Promise<boolean> {
+    async _removeCob(key: PixID & { IdOwner: string }, tipoCob: TipoCob): Promise<boolean> {
+        const curr = await this.cob.read(key.IdOwner, { txid: key.txid });
+        if (!curr || !!curr.calendario?.expiracao !== (tipoCob === TipoCob.imediato)) {
+            return false;
+        }
         await this.loccob.remove(key.IdOwner, { txid: key.txid });
         return await this.cob.remove(key.IdOwner, { txid: key.txid });
     }
     async removeCob(key: PixID & { IdOwner: string }): Promise<boolean> {
-        return this._removeCob(key);
+        return this._removeCob(key, TipoCob.imediato);
     }
     async removeCobV(key: PixID & { IdOwner: string }): Promise<boolean> {
-        return this._removeCob(key);
+        return this._removeCob(key, TipoCob.vencimento);
     }
 
     async readLoc({ IdOwner, id }: LocID & { IdOwner: string }): Promise<LocGetResponse> {
@@ -359,8 +502,7 @@ export class PSP {
     }
 
     async addLoc({ tipoCob, IdOwner }: LocPutRequest & { IdOwner: string }): Promise<LocPutResponse> {
-        await (() => new Promise<void>(res => setTimeout(() => res(), 100)))(); //delay -- WORKAROUND PRA EVITAR COLISÃO DE ID DURANTE OS TESTES
-        const id = + new Date();
+        const id = PSP.locSeq[IdOwner] = (PSP.locSeq[IdOwner] || 0) + 1;
         const itm = { id, tipoCob, uuid: randomUUID().replace(/\-/g, ''), criacao: (new Date()).toJSON() };
         await this.locations.add(IdOwner, itm)
         return await this.readLoc({ IdOwner, id });
@@ -378,7 +520,7 @@ export class PSP {
             throw new Error( MESSAGES.Errors.defaults.NOT_FOUNT('OWNER') );
         }
 
-        const itm = { ...mdl.data, idRec: `R${mdl.data.politicaRetentativa === PoliticaRetentativa.NaoPermite ? 'N' : 'R'}${ own.ISPB }${ new Date().toJSON().replace(/\D/g,'').substring(0,8) } `    }
+        const itm = { ...mdl.data, idRec: `R${mdl.data.politicaRetentativa === PoliticaRetentativa.NaoPermite ? 'N' : 'R'}${ own.ISPB }${ new Date().toJSON().replace(/\D/g,'').substring(0,8) }${ randomUUID().replace(/\-/g, '').substring(0, 11) }`    }
         return await this.rec.add(mdl.IdOwner, itm);
     }
 }

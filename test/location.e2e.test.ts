@@ -135,7 +135,7 @@ describe('LOC', () => {
                     .expect((res: any) => expect(JSON.parse(res.text)).toMatchObject({ status: 404 }));
             })
             it('id inexistente', async () => {
-                const id = Math.round(Math.random() * 1000);
+                const id = Number.MAX_SAFE_INTEGER;
                 await request(app.getHttpServer())
                     .get(`/loc/${id}`)
                     .set("mocked-token", "123-abc")
@@ -192,7 +192,7 @@ describe('LOC', () => {
             })
 
             it('id inexistente', async () => {
-                const id = Math.round(Math.random() * 1000);
+                const id = Number.MAX_SAFE_INTEGER;
                 await request(app.getHttpServer())
                     .delete(`/loc/${id}/txid`)
                     .set("mocked-token", "123-abc")

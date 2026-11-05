@@ -49,7 +49,7 @@ export class HttpInterceptor implements NestInterceptor {
                 catchError((err: HttpException): Observable<any> => {
                     const statusHandle = {
                         400: () => {
-                            const endpoint = request['url'].split('/')[1];
+                            const endpoint = request['url'].split('?')[0].split('/')[1];
 
                             const handle: (msgs: any) => Observable<any> = {
                                 'cob': (msgs: { [key: string]: string }) => {
@@ -59,6 +59,10 @@ export class HttpInterceptor implements NestInterceptor {
                                 'cobv': (msgs: { [key: string]: string }) => {
                                     const violacoes = Object.keys(msgs).map((key: string) => ({ propriedade: `${endpoint}.${key}`, razao: msgs[key].replace('$$', `${endpoint}.${key}`) }));
                                     throw new BadRequestException(this.ServerErrorTypes[err.getStatus()]('CobV', "A cobrança não respeita o schema.", violacoes));
+                                },
+                                'cobr': (msgs: { [key: string]: string }) => {
+                                    const violacoes = Object.keys(msgs).map((key: string) => ({ propriedade: `${endpoint}.${key}`, razao: msgs[key].replace('$$', `${endpoint}.${key}`) }));
+                                    throw new BadRequestException(this.ServerErrorTypes[err.getStatus()]('CobR', "A cobrança não respeita o schema.", violacoes));
                                 },
                                 'loc': (msgs: { [key: string]: string }) => {
                                     const violacoes = Object.keys(msgs).map((key: string) => ({ propriedade: `${endpoint}.${key}`, razao: msgs[key].replace('$$', `${endpoint}.${key}`) }));

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Headers, Param, Patch, Put, Query, Req, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, Param, Patch, Put, Query, Req, UseInterceptors } from '@nestjs/common';
 import { PSP } from '../core/app/psp';
 import { HttpInterceptor } from '../http.interceptor';
 import { CobVGetFilter, CobVPatchRequest, CobVPutRequest } from '../core/app/models/cobv';
@@ -36,7 +36,7 @@ export class CobVController {
     return this.pspService.editCobV(itm);
   }
 
-  @Get(":txid")
+  @Delete(":txid")
   remove(@Param("txid") txid, @Headers() headers) {
     const IdOwner = headers["IdOwner"];
     return this.pspService.removeCobV({ IdOwner, txid });

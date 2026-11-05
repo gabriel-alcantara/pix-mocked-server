@@ -1,9 +1,14 @@
+import { BadRequestException } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import { PSP } from "../../../src/core/app/psp"
 import { MemoryDB } from "../../../src/libs/fakedb";
 import { correntistas } from '../../../src/data/db.json'
 import { ModalidadeAlteracao, Situacao, TipoCob } from "../../../src/core/app/models";
-import { MESSAGES } from "../../../src/libs/messages";
+import { MESSAGES, VALIDATORS } from "../../../src/libs/messages";
+import { owners } from "../../../src/data/db.json";
+import { PoliticaRetentativa } from "../../../src/core/app/models/rec";
+import { StatusCobR } from "../../../src/core/app/models/cobr";
+import { addDays, flatDate } from "../../../src/libs/utils";
 describe("PSP", () => {
 
 
@@ -15,6 +20,9 @@ describe("PSP", () => {
         MemoryDB.create("COB", ['txid']);
         MemoryDB.create("LOCATIONS", ['id', 'uuid']);
         MemoryDB.create("LOC_COB", ['id', 'txid']);
+        MemoryDB.create("COB_HIST", ['id']);
+        MemoryDB.create("COBR", ['txid']);
+        MemoryDB.create("REC", ['idRec']);
 
         await Promise.all(correntistas.map(async (c) => {
             await cst.add('DEV', c)
@@ -64,7 +72,7 @@ describe("PSP", () => {
 
                 describe('falha', () => {
                     it('location não encontrada', async () => {
-                        await expect(psp.editCob({ IdOwner, txid, data: { loc: { id: Math.round(Math.random() * 1000) } } })).rejects.toThrow(MESSAGES.Errors.defaults.NOT_FOUNT('location'))
+                        await expect(psp.editCob({ IdOwner, txid, data: { loc: { id: Number.MAX_SAFE_INTEGER } } })).rejects.toThrow(MESSAGES.Errors.defaults.NOT_FOUNT('location'))
                     })
                     it('tipo divergente', async () => {
                         const loc_div = await psp.addLoc({ IdOwner, tipoCob: TipoCob.vencimento })
@@ -120,5 +128,98 @@ describe("PSP", () => {
 
 
     })
+
+
+    describe('LOC - id sequencial', () => {
+        it('incrementa por owner', async () => {
+            const a = await psp.addLoc({ IdOwner, tipoCob: TipoCob.imediato });
+            const b = await psp.addLoc({ IdOwner, tipoCob: TipoCob.imediato });
+            const outro = await psp.addLoc({ IdOwner: randomUUID(), tipoCob: TipoCob.imediato });
+            expect(a.id).toBe(1);
+            expect(b.id).toBe(2);
+            expect(outro.id).toBe(1);
+        });
+
+        it('sem colisão em chamadas concorrentes', async () => {
+            const locs = await Promise.all(Array.from({ length: 10 }, () => psp.addLoc({ IdOwner, tipoCob: TipoCob.imediato })));
+            expect(new Set(locs.map(l => l.id)).size).toBe(10);
+        });
+    });
+
+    describe('COB - filtro status', () => {
+        it('filtra por status', async () => {
+            const filter = { IdOwner, inicio: flatDate(addDays(new Date(), -1)).toJSON(), fim: flatDate(addDays(new Date(), +1)).toJSON() };
+            const txidRem = randomUUID().replace(/\-/g, '');
+            await psp.addCob({ IdOwner, txid, data: { chave, valor: { original: "10.00" } } });
+            await psp.addCob({ IdOwner, txid: txidRem, data: { chave, valor: { original: "10.00" } } });
+            await psp.editCob({ IdOwner, txid: txidRem, data: { status: Situacao.Removida } });
+
+            await expect(psp.listCob(filter)).resolves.toMatchObject({ parametros: { paginacao: { quantidadeTotalDeItens: 2 } } });
+
+            const ativas = await psp.listCob({ ...filter, status: Situacao.Ativa });
+            expect(ativas.cobs.map(c => c.txid)).toEqual([txid]);
+
+            const removidas = await psp.listCob({ ...filter, status: Situacao.Removida });
+            expect(removidas.cobs.map(c => c.txid)).toEqual([txidRem]);
+        });
+    });
+
+    describe('remove respeita o tipo da cobrança', () => {
+        it('removeCobV não apaga cobrança imediata e removeCob não apaga cobv', async () => {
+            const txidCob = randomUUID().replace(/\-/g, '');
+            const txidCobV = randomUUID().replace(/\-/g, '');
+            await psp.addCob({ IdOwner, txid: txidCob, data: { chave, valor: { original: "10.00" } } });
+            await psp.addCobV({ IdOwner, txid: txidCobV, data: { chave, calendario: { dataDeVencimento: '2030-01-01' }, valor: { original: "10.00" } } as any });
+
+            await expect(psp.removeCobV({ IdOwner, txid: txidCob })).resolves.toBeFalsy();
+            await expect(psp.removeCob({ IdOwner, txid: txidCobV })).resolves.toBeFalsy();
+            await expect(psp.readCob({ IdOwner, txid: txidCob })).resolves.toMatchObject({ txid: txidCob });
+            await expect(psp.readCobV({ IdOwner, txid: txidCobV })).resolves.toMatchObject({ txid: txidCobV });
+
+            await expect(psp.removeCob({ IdOwner, txid: txidCob })).resolves.toBeTruthy();
+            await expect(psp.removeCobV({ IdOwner, txid: txidCobV })).resolves.toBeTruthy();
+        });
+    });
+
+    describe('COBR', () => {
+        const data: any = { idRec: 'RN3114167220240926abcdefghijk', infoAdicional: 'teste', calendario: { dataDeVencimento: flatDate(addDays(new Date(), 1)).toJSON() } };
+
+        beforeEach(async () => {
+            await MemoryDB.get('REC').add(IdOwner, { idRec: data.idRec, politicaRetentativa: PoliticaRetentativa.Permite });
+        });
+
+        it('addCobR persiste na coleção COBR', async () => {
+            await expect(psp.addCobR({ IdOwner, txid, data })).resolves.toMatchObject({ txid, idRec: data.idRec, status: StatusCobR.Criada, revisao: 0 });
+            await expect(psp.readCobR({ IdOwner, txid })).resolves.toMatchObject({ txid, idRec: data.idRec });
+            await expect(psp.readCob({ IdOwner, txid })).resolves.toBeUndefined();
+        });
+
+        it('addCobR txid duplicado', async () => {
+            await psp.addCobR({ IdOwner, txid, data });
+            await expect(psp.addCobR({ IdOwner, txid, data })).rejects.toThrow(BadRequestException);
+        });
+    });
+
+    describe('REC', () => {
+        it('idRec sem espaço', async () => {
+            const res = await psp.addRec({ IdOwner: owners[0].id, data: { politicaRetentativa: PoliticaRetentativa.NaoPermite } as any });
+            expect(res.idRec).toMatch(/^RN\d{8}\d{8}[0-9a-f]{11}$/);
+            expect(VALIDATORS.IDRec('idRec', res.idRec)).toBeUndefined();
+        });
+
+        it('idRec único no mesmo dia', async () => {
+            const data = { politicaRetentativa: PoliticaRetentativa.Permite } as any;
+            const a = await psp.addRec({ IdOwner: owners[0].id, data });
+            const b = await psp.addRec({ IdOwner: owners[0].id, data });
+            expect(a.idRec).not.toEqual(b.idRec);
+        });
+
+        it('todos os owners geram idRec válido', async () => {
+            for (const own of owners) {
+                const res = await psp.addRec({ IdOwner: own.id, data: { politicaRetentativa: PoliticaRetentativa.Permite } as any });
+                expect(VALIDATORS.IDRec('idRec', res.idRec)).toBeUndefined();
+            }
+        });
+    });
 
 })

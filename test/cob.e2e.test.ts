@@ -393,4 +393,37 @@ describe('COB', () => {
 
 
   });
+
+  describe('/DELETE {:txid}', () => {
+    it('404 txid inexistente', async () => {
+      await request(app.getHttpServer())
+        .delete(`/cob/${randomUUID().replace(/\-/g, '')}`)
+        .set("mocked-token", "123-abc")
+        .expect(404);
+    });
+
+    it('200 remove e GET passa a retornar 404', async () => {
+      await request(app.getHttpServer())
+        .put(`/cob/${txid}`)
+        .send({ chave, valor: { original: "1.00" } })
+        .set("mocked-token", "123-abc")
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get(`/cob/${txid}`)
+        .set("mocked-token", "123-abc")
+        .expect(200)
+        .expect((res: any) => expect(res.body).toMatchObject({ txid, chave }));
+
+      await request(app.getHttpServer())
+        .delete(`/cob/${txid}`)
+        .set("mocked-token", "123-abc")
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get(`/cob/${txid}`)
+        .set("mocked-token", "123-abc")
+        .expect(404);
+    });
+  });
 })

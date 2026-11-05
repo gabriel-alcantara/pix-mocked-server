@@ -27,7 +27,7 @@ export const VALIDATORS = {
 
     email: (name: string, value: string) => VALIDATORS.pattern(name, value, /^[a-z0-9._%+-]+\@[a-z0-9.-]+\.[a-z]{2,}$/i),
     hash: (name: string, value: string): string | undefined => VALIDATORS.pattern(name, value, /^[0-9a-f]{8,8}-[0-9a-f]{4,4}-[0-9a-f]{4,4}-[0-9a-f]{4,4}-[0-9a-f]{12,12}$/i),
-    cel: (name: string, value: string): string | undefined => VALIDATORS.pattern(name, value, /\+[0-9]{13,13}/),
+    cel: (name: string, value: string): string | undefined => VALIDATORS.pattern(name, value, /^\+[0-9]{13}$/),
 
     chaveDICT: (name: string, value: string) => (
         !VALIDATORS.cnpj(name, value) ||
@@ -38,7 +38,7 @@ export const VALIDATORS = {
     ) ? undefined : MESSAGES.Errors.defaults.INVALID_FORMAT(name),
 
     IDRec: (name:string, value:string) => (
-        VALIDATORS.pattern(name, value, /[RC][RN][0-9]{8}[0-9]{8}[a-zA-Z0-9]{11}/) //PIX/OpenFinance|RETENTATIVA|ISPB/CNPJ|YYYYMMDD|Alfanumerico
+        VALIDATORS.pattern(name, value, /^[RC][RN][0-9]{8}[0-9]{8}[a-zA-Z0-9]{11}$/) //PIX/OpenFinance|RETENTATIVA|ISPB/CNPJ|YYYYMMDD|Alfanumerico
     ) 
 
 
