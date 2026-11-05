@@ -185,7 +185,14 @@ describe("PSP", () => {
     describe('REC', () => {
         it('idRec sem espaço', async () => {
             const res = await psp.addRec({ IdOwner: owners[0].id, data: { politicaRetentativa: PoliticaRetentativa.NaoPermite } as any });
-            expect(res.idRec).toMatch(/^RN[0-9a-z]{8}\d{8}$/);
+            expect(res.idRec).toMatch(/^RN[0-9a-z]{8}\d{8}[0-9a-f]{11}$/);
+        });
+
+        it('idRec único no mesmo dia', async () => {
+            const data = { politicaRetentativa: PoliticaRetentativa.Permite } as any;
+            const a = await psp.addRec({ IdOwner: owners[0].id, data });
+            const b = await psp.addRec({ IdOwner: owners[0].id, data });
+            expect(a.idRec).not.toEqual(b.idRec);
         });
     });
 

@@ -496,7 +496,7 @@ export class PSP {
             throw new Error( MESSAGES.Errors.defaults.NOT_FOUNT('OWNER') );
         }
 
-        const itm = { ...mdl.data, idRec: `R${mdl.data.politicaRetentativa === PoliticaRetentativa.NaoPermite ? 'N' : 'R'}${ own.ISPB }${ new Date().toJSON().replace(/\D/g,'').substring(0,8) }`    }
+        const itm = { ...mdl.data, idRec: `R${mdl.data.politicaRetentativa === PoliticaRetentativa.NaoPermite ? 'N' : 'R'}${ own.ISPB }${ new Date().toJSON().replace(/\D/g,'').substring(0,8) }${ randomUUID().replace(/\-/g, '').substring(0, 11) }`    }
         return await this.rec.add(mdl.IdOwner, itm);
     }
 }
