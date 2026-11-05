@@ -121,6 +121,7 @@ describe('CobRController', () => {
     it('data inválida', async () => {
       await expect(ctrl.createRetentativa(txid, '2024-13-45', { IdOwner })).rejects.toThrow(BadRequestException);
       await expect(ctrl.createRetentativa(txid, 'amanha', { IdOwner })).rejects.toThrow(BadRequestException);
+      await expect(ctrl.createRetentativa(txid, '2030-02-30', { IdOwner })).rejects.toThrow(BadRequestException);
     });
 
     it('recorrência sem retentativa', async () => {

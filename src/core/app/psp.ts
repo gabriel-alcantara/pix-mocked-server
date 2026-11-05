@@ -187,7 +187,7 @@ export class PSP {
         }
 
         const dataLiquidacao = new Date(`${data}T00:00:00.000Z`);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(dataLiquidacao.valueOf())) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(dataLiquidacao.valueOf()) || dataLiquidacao.toJSON().substring(0, 10) !== data) {
             throw new BadRequestException({ data: 'O campo $$ não respeita o schema.' });
         }
 
