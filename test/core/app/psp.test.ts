@@ -164,6 +164,23 @@ describe("PSP", () => {
         });
     });
 
+    describe('remove respeita o tipo da cobrança', () => {
+        it('removeCobV não apaga cobrança imediata e removeCob não apaga cobv', async () => {
+            const txidCob = randomUUID().replace(/\-/g, '');
+            const txidCobV = randomUUID().replace(/\-/g, '');
+            await psp.addCob({ IdOwner, txid: txidCob, data: { chave, valor: { original: "10.00" } } });
+            await psp.addCobV({ IdOwner, txid: txidCobV, data: { chave, calendario: { dataDeVencimento: '2030-01-01' }, valor: { original: "10.00" } } as any });
+
+            await expect(psp.removeCobV({ IdOwner, txid: txidCob })).resolves.toBeFalsy();
+            await expect(psp.removeCob({ IdOwner, txid: txidCobV })).resolves.toBeFalsy();
+            await expect(psp.readCob({ IdOwner, txid: txidCob })).resolves.toMatchObject({ txid: txidCob });
+            await expect(psp.readCobV({ IdOwner, txid: txidCobV })).resolves.toMatchObject({ txid: txidCobV });
+
+            await expect(psp.removeCob({ IdOwner, txid: txidCob })).resolves.toBeTruthy();
+            await expect(psp.removeCobV({ IdOwner, txid: txidCobV })).resolves.toBeTruthy();
+        });
+    });
+
     describe('COBR', () => {
         const data: any = { idRec: 'RN3114167220240926abcdefghijk', infoAdicional: 'teste', calendario: { dataDeVencimento: flatDate(addDays(new Date(), 1)).toJSON() } };
 
